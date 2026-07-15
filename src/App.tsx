@@ -5,7 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import Transactions from "./pages/Transactions";
 import Settings from "./pages/Settings";
 import About from "./pages/About";
-import LandingPage from "./pages/Landingpage";
+import LandingPage from "./pages/LandingPage";
 import { mockConnectionStatus, mockContract } from "./data/mockTransactions";
 import type { NavRoute } from "./types";
 
