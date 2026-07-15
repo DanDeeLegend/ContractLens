@@ -1,0 +1,29 @@
+---
+alwaysApply: true
+---
+
+/**
+ * blockchainService
+ *
+ * Will be the single entry point the UI calls into for contract data —
+ * composing rpcService (raw chain access) and decoderService (ABI
+ * decoding) behind one interface. Nothing here is implemented yet.
+ */
+
+// TODO: `connectToContract(address: string)` — validate the address,
+//       load its ABI (from a local file or a block explorer API), and
+//       open an rpcService subscription for it.
+
+// TODO: `fetchTransactionHistory(address, fromBlock, toBlock)` — backfill
+//       past interactions by querying logs, decoding each with
+//       decoderService, and returning Transaction[] as defined in
+//       src/types.
+
+// TODO: `onNewTransaction(callback)` — wire live events from rpcService
+//       through decoderService and push fully-formed Transaction objects
+//       to subscribers (the hooks layer).
+
+// TODO: `disconnect()` — tear down subscriptions cleanly on unmount or
+//       when the user switches contracts.
+
+export {};
