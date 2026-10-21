@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ethers } from "ethers";
+import { DEMO_CONTRACT_ADDRESS } from "../services/blockchainService";
 import {
   Activity,
   Search,
@@ -26,9 +27,9 @@ export default function LandingPage({ onStart }: LandingPageProps) {
   };
 
   const handleDemo = () => {
-    const demo = import.meta.env.VITE_CONTRACT_ADDRESS as string;
+    const demo = DEMO_CONTRACT_ADDRESS;
 
-    if (!demo) {
+    if (!ethers.isAddress(demo)) {
       setError("Demo contract is not configured.");
       return;
     }
@@ -46,7 +47,7 @@ export default function LandingPage({ onStart }: LandingPageProps) {
         <div className="flex-1">
 
           <div className="inline-flex items-center rounded-full border border-accent/20 bg-accent-soft px-3 py-1 text-sm text-accent">
-            Ethereum • Sepolia • Real-Time Monitoring
+            Ethereum • Sepolia • Event Decoding
           </div>
 
           <h1 className="mt-6 text-7xl font-bold leading-tight lg:text-8xl">
@@ -58,8 +59,8 @@ export default function LandingPage({ onStart }: LandingPageProps) {
           </h2>
 
           <p className="mt-6 max-w-2xl text-lg leading-8 text-text-muted">
-            Decode transactions, inspect event logs, and monitor Ethereum
-            smart contracts from one clean, developer-friendly dashboard.
+            Decode the events a smart contract emits on Ethereum Sepolia into
+            readable activity, from one clean, developer-friendly dashboard.
           </p>
 
           {/* Input */}
@@ -114,7 +115,7 @@ export default function LandingPage({ onStart }: LandingPageProps) {
                 Historical Monitoring
               </h3>
               <p className="mt-2 text-sm text-text-muted">
-                Browse historical smart contract interactions.
+                Browse recent on-chain events for any contract.
               </p>
             </div>
 

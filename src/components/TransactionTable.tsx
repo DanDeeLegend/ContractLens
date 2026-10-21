@@ -17,7 +17,7 @@ const filters: { value: TransactionFilter; label: string }[] = [
   { value: "failed", label: "Failed" },
 ];
 
-const columns = ["Timestamp", "Function", "Caller", "Tx Hash", "Block", "Gas Used", "Status"];
+const columns = ["Timestamp", "Event", "Caller", "Tx Hash", "Block", "Gas Used", "Status"];
 
 export default function TransactionTable({
   transactions,

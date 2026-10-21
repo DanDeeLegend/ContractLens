@@ -1,26 +1,29 @@
 import { ethers } from "ethers";
 import type { Transaction, TransactionStatus } from "../types";
-import { getProvider, getLogs, getTransaction, getTransactionReceipt } from "./rpcService";
+import {
+  getLatestBlockNumber,
+  getLogs,
+  getBlockTimestamp,
+  getTransaction,
+  getTransactionReceipt,
+} from "./rpcService";
 import { createInterface, decodeLog } from "./decoderService";
+import { scanLogs } from "./logScanner";
 
 /**
  * blockchainService
  *
- * Single entry point the UI (or a data hook) calls to get real
- * Transaction[] data for the monitored contract — composing rpcService
- * (raw chain access) and decoderService (ABI decoding) behind one
- * interface, per the architecture the placeholder files described.
+ * The single entry point the UI uses to get Transaction[] for a contract. It composes
+ * rpcService (raw chain access through the /api/rpc proxy), logScanner (windowed
+ * eth_getLogs that adapts to provider limits) and decoderService (ABI decoding).
  */
 
-/** The single contract this dashboard monitors. Configure via .env. */
-export const CONTRACT_ADDRESS = (import.meta.env.VITE_CONTRACT_ADDRESS as string | undefined) ?? "";
+/** Public demo contract for the landing page's "Try Demo Contract" button (not a secret). */
+export const DEMO_CONTRACT_ADDRESS = (import.meta.env.VITE_CONTRACT_ADDRESS as string | undefined) ?? "";
 
 /**
- * Default ABI: standard ERC20 + Ownable + Pausable events. Swap this for
- * the real contract's ABI (e.g. `import abi from "../abi/VaultToken.json"`)
- * once it's available — decodeLog() falls back to "Unknown" gracefully
- * for any log signature not present here, so an incomplete ABI degrades
- * rather than breaks.
+ * Default ABI: standard ERC-20 + Ownable + Pausable events. Logs whose signature is not in the
+ * ABI still appear, labelled "Unknown", so an incomplete ABI degrades instead of hiding activity.
  */
 export const DEFAULT_ABI: ethers.InterfaceAbi = [
   "event Transfer(address indexed from, address indexed to, uint256 value)",
@@ -31,16 +34,25 @@ export const DEFAULT_ABI: ethers.InterfaceAbi = [
 ];
 
 export interface FetchHistoryOptions {
-  /** Contract to monitor. Defaults to CONTRACT_ADDRESS. */
-  contractAddress?: string;
+  contractAddress: string;
   /** ABI used to decode logs. Defaults to DEFAULT_ABI. */
   abi?: ethers.InterfaceAbi;
-  /** Start of the block range. Negative numbers mean "N blocks before toBlock". Default: last 5,000 blocks. */
-  fromBlock?: number;
-  /** End of the block range. Default: chain tip. */
-  toBlock?: number;
-  /** Max concurrent getTransaction/getTransactionReceipt/getBlock calls. Default: 5. */
+  /** Blocks to look back from the chain tip at most. Default 2,000 (about 6.7 hours on Sepolia). */
+  lookbackBlocks?: number;
+  /** Stop scanning once this many events were found. Default 50. */
+  targetLogs?: number;
+  /** Max concurrent RPC calls. Default 6. */
   concurrency?: number;
+}
+
+export interface HistoryResult {
+  /** Newest first. */
+  transactions: Transaction[];
+  fromBlock: number;
+  toBlock: number;
+  scannedBlocks: number;
+  /** The getLogs window the provider allowed (small windows mean a rate-limited plan). */
+  window: number;
 }
 
 /** Runs async tasks with bounded concurrency so we don't flood the RPC provider. */
@@ -64,39 +76,46 @@ const blockTimestampCache = new Map<number, number>();
 async function resolveTimestamp(blockNumber: number): Promise<string> {
   let unixSeconds = blockTimestampCache.get(blockNumber);
   if (unixSeconds === undefined) {
-    const block = await getProvider().getBlock(blockNumber);
-    unixSeconds = block?.timestamp ?? Math.floor(Date.now() / 1000);
+    unixSeconds = (await getBlockTimestamp(blockNumber)) ?? Math.floor(Date.now() / 1000);
     blockTimestampCache.set(blockNumber, unixSeconds);
   }
   return new Date(unixSeconds * 1000).toISOString();
 }
 
+type Lookup = { tx: ethers.TransactionResponse | null; receipt: ethers.TransactionReceipt | null };
+
 /**
- * Converts one raw log into the app's Transaction shape.
- * Per requirement #9: if decoding fails, we still return hash/block/timestamp
- * with functionName "Unknown" rather than dropping the row.
+ * Converts one raw log into the app's Transaction shape. If decoding fails the row is still
+ * returned (hash, block, time) with functionName "Unknown" rather than being dropped.
  */
-async function logToTransaction(iface: ethers.Interface, log: ethers.Log): Promise<Transaction> {
+async function logToTransaction(
+  iface: ethers.Interface,
+  log: ethers.Log,
+  lookups: Map<string, Promise<Lookup>>,
+): Promise<Transaction> {
   const decoded = decodeLog(iface, log);
 
-  // Timestamp, caller, and status all need extra RPC calls beyond the log itself.
-  const [timestamp, tx, receipt] = await Promise.all([
-    resolveTimestamp(log.blockNumber),
-    getTransaction(log.transactionHash).catch(() => null),
-    getTransactionReceipt(log.transactionHash).catch(() => null),
-  ]);
+  // Several events can share one transaction: look it up once.
+  let lookup = lookups.get(log.transactionHash);
+  if (!lookup) {
+    lookup = Promise.all([
+      getTransaction(log.transactionHash).catch(() => null),
+      getTransactionReceipt(log.transactionHash).catch(() => null),
+    ]).then(([tx, receipt]) => ({ tx, receipt }));
+    lookups.set(log.transactionHash, lookup);
+  }
+  const [timestamp, { tx, receipt }] = await Promise.all([resolveTimestamp(log.blockNumber), lookup]);
 
+  // Receipts are only used for status and gas; a reverted transaction emits no logs, so rows
+  // found through logs are normally "success".
   const status: TransactionStatus = receipt?.status === 0 ? "failed" : "success";
-  // The log's own `.address` is the contract, not the caller — the real
-  // caller is the transaction's `from`. Fall back to the contract address
-  // only if the transaction lookup itself failed.
-  const caller = tx?.from ?? log.address;
 
   return {
     id: `${log.transactionHash}-${log.index}`,
     hash: log.transactionHash,
     functionName: decoded.name,
-    caller,
+    // The log's own `.address` is the contract, not the caller. The caller is the transaction's `from`.
+    caller: tx?.from ?? log.address,
     timestamp,
     blockNumber: log.blockNumber,
     gasUsed: receipt ? Number(receipt.gasUsed) : 0,
@@ -105,51 +124,36 @@ async function logToTransaction(iface: ethers.Interface, log: ethers.Log): Promi
   };
 }
 
-/**
- * Fetches and decodes historical interactions with the monitored contract.
- * Returns objects fully compatible with the existing Transaction type, so
- * TransactionTable / TransactionRow / TransactionDetailsModal need no changes.
- */
-export async function fetchTransactionHistory(options: FetchHistoryOptions = {}): Promise<Transaction[]> {
-  console.log("OPTIONS RECEIVED:", options);
+/** Fetches and decodes recent events emitted by a contract, newest first. */
+export async function fetchTransactionHistory(options: FetchHistoryOptions): Promise<HistoryResult> {
+  const { contractAddress, abi = DEFAULT_ABI, lookbackBlocks = 2_000, targetLogs = 50, concurrency = 6 } = options;
 
-  
-  const {
-    contractAddress = CONTRACT_ADDRESS,
-    abi = DEFAULT_ABI,
-    toBlock,
-    fromBlock,
-    concurrency = 5,
-  } = options;
-
-  if (!contractAddress) {
-    throw new Error(
-      "No contract address configured. Set VITE_CONTRACT_ADDRESS in .env, or pass contractAddress explicitly."
-    );
+  if (!ethers.isAddress(contractAddress)) {
+    throw new Error("Not a valid contract address.");
   }
 
-  const provider = getProvider();
-  const resolvedToBlock = toBlock ?? (await provider.getBlockNumber());
-  const resolvedFromBlock = fromBlock ?? Math.max(resolvedToBlock - 9, 0);  console.log("Watching contract:", contractAddress);
-  console.log("Block range:", resolvedFromBlock, "to", resolvedToBlock);
-  
-  const logs = await getLogs({
-    address: contractAddress,
-    fromBlock: resolvedFromBlock,
-    toBlock: resolvedToBlock,
+  const latestBlock = await getLatestBlockNumber();
+  const scan = await scanLogs<ethers.Log>({
+    getLogs: (fromBlock, toBlock) => getLogs({ address: contractAddress, fromBlock, toBlock }),
+    latestBlock,
+    lookbackBlocks,
+    targetLogs,
+    concurrency,
   });
-  
-  console.log("Found logs:", logs.length);
-  console.log("RAW LOGS:", logs);
 
   const iface = createInterface(abi);
-  const transactions = await mapWithConcurrency(
-    logs,
-    concurrency,
-    (log) => logToTransaction(iface, log)
-  );
-  // Newest first, matching the ordering the mock data previously provided.
-  return transactions.sort((a, b) => b.blockNumber - a.blockNumber || b.id.localeCompare(a.id));
+  const lookups = new Map<string, Promise<Lookup>>();
+  const transactions = await mapWithConcurrency(scan.logs, concurrency, (log) => logToTransaction(iface, log, lookups));
+
+  transactions.sort((a, b) => b.blockNumber - a.blockNumber || b.id.localeCompare(a.id));
+
+  return {
+    transactions: transactions.slice(0, 200),
+    fromBlock: scan.fromBlock,
+    toBlock: scan.toBlock,
+    scannedBlocks: scan.scannedBlocks,
+    window: scan.window,
+  };
 }
 
 /** Clears the in-memory block-timestamp cache. Mainly useful for tests. */

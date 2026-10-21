@@ -75,7 +75,7 @@ export default function TransactionDetailsModal({ transaction, onClose }: Transa
         <div className="border-t border-border-soft px-5 py-4">
           <p className="text-xs uppercase tracking-wide text-text-muted">Decoded Inputs</p>
           {transaction.params.length === 0 ? (
-            <p className="mt-2 text-sm text-text-muted">This function takes no parameters.</p>
+            <p className="mt-2 text-sm text-text-muted">This event carries no parameters.</p>
           ) : (
             <div className="mt-2 flex flex-col gap-2">
               {transaction.params.map((param) => (
