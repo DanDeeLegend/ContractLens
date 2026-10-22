@@ -1,10 +1,4 @@
-/**
- * Core domain types for ContractLens.
- *
- * These describe the shape of on-chain data once real RPC/decoding
- * services are wired up. For now they are populated from mock data
- * (see src/data/mockTransactions.ts).
- */
+/** Core domain types for ContractLens: the shape of decoded on-chain data shown in the UI. */
 
 export type TransactionStatus = "success" | "failed";
 
@@ -15,7 +9,7 @@ export interface DecodedParam {
   value: string;
 }
 
-/** A single monitored interaction with the contract. */
+/** A single decoded event emitted by the monitored contract. */
 export interface Transaction {
   id: string;
   hash: string;
@@ -33,7 +27,6 @@ export interface Contract {
   address: string;
   name: string;
   network: string;
-  deployedBlock: number;
 }
 
 /** Aggregate stats shown on the dashboard status cards. */

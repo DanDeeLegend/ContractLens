@@ -28,9 +28,7 @@ export default function ContractCard({ contract }: ContractCardProps) {
         </span>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-text-primary">{contract.name}</p>
-          <p className="text-xs text-text-muted">
-            {contract.network} · deployed at block {contract.deployedBlock.toLocaleString("en-US")}
-          </p>
+          <p className="text-xs text-text-muted">{contract.network}</p>
         </div>
       </div>
 

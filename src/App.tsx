@@ -6,45 +6,30 @@ import Transactions from "./pages/Transactions";
 import Settings from "./pages/Settings";
 import About from "./pages/About";
 import LandingPage from "./pages/LandingPage";
-import { mockConnectionStatus, mockContract } from "./data/mockTransactions";
+import { useContractActivity } from "./hooks/useContractActivity";
 import type { NavRoute } from "./types";
 
 function App() {
   const [route, setRoute] = useState<NavRoute>("dashboard");
-  const [started, setStarted] = useState(false);
-  console.log("started =", started);
+  // Empty until the visitor picks a contract on the landing page.
   const [contractAddress, setContractAddress] = useState("");
+  const activity = useContractActivity(contractAddress);
 
-  if (!started) {
-    return (
-      <LandingPage
-        onStart={(address) => {
-          setContractAddress(address);
-          setStarted(true);
-        }}
-      />
-    );
+  if (!contractAddress) {
+    return <LandingPage onStart={setContractAddress} />;
   }
 
   return (
     <div className="flex h-full flex-col">
-      <Header
-        network={mockContract.network}
-        connectionState={mockConnectionStatus.state}
-      />
+      <Header network="Sepolia" connectionState={activity.connection} />
 
       <div className="flex min-h-0 flex-1">
         <Sidebar active={route} onNavigate={setRoute} />
 
         <main className="min-w-0 flex-1 overflow-y-auto">
-          {route === "dashboard" && (
-            <Dashboard contractAddress={contractAddress} />
-          )}
-
-          {route === "transactions" && <Transactions />}
-
-          {route === "settings" && <Settings />}
-
+          {route === "dashboard" && <Dashboard activity={activity} onMonitor={setContractAddress} />}
+          {route === "transactions" && <Transactions activity={activity} />}
+          {route === "settings" && <Settings activity={activity} />}
           {route === "about" && <About />}
         </main>
       </div>

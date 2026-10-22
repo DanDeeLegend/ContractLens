@@ -1,8 +1,10 @@
 # Dependencies
 node_modules/
 
-# Environment variables
+# Environment variables (keep .env.example)
 .env
+.env.*
+!.env.example
 
 # Build output
 dist/
