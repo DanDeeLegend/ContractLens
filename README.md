@@ -4,7 +4,7 @@ Decode the events a smart contract emits on **Ethereum Sepolia** into a readable
 
 Think of it as a lightweight, single-contract alternative to a block explorer.
 
-**Live demo:** https://contract-lens-two.vercel.app
+**Live demo:** https://contractlens-rust.vercel.app (Ethereum Sepolia, read through the server-side RPC proxy described below)
 
 ## How it works
 
